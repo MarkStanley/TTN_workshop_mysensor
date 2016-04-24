@@ -1,18 +1,82 @@
-<?PHP 
-/* Example app for TTN workshops.  This is quick and dirty code!
- * Mark Stanley, Jan 2016
+<?php 
+/* Example app for TTN workshops.  
+ * Mark Stanley, Apr 2016
  *
- * Takes a TTN node ID as a parameter, gets its data from the TTN API, and displays it graphically
+ * Takes a TTN node ID as a parameter, gets its data from a MondoDB database, and displays it graphically
  *
  * Node is an Arduino with ThingInnovations shield, designed by Andrew Lindasay
- * Shield contains temperature, humidity, light sensor plus Microchip RN2483 LoraWAN radio
+ * Shield contains temperature, light sensor plus Microchip RN2483 LoraWAN radio
  *
  */
 
-$nodeId =isset($_GET['node']) ? $_GET['node'] : "";
-$noRecs =isset($_GET['recs']) ? $_GET['recs'] : 20;
+$nodeId =isset($_GET['node']) ? $_GET['node'] : "02011E07";
 
-//echo "<h1>Node $nodeId </h1>";
+//Mongodb configuration
+$dbhost = 'localhost';
+$dbname = 'ttnWorkshop';
+$m = new Mongo("mongodb://$dbhost");
+$db = $m->$dbname;
+$collection = $db->senseData;
+
+// Search for latest record and populate necessary variables
+$where = array( 'node' => $nodeId, 'msgData' =>array( '$exists' => true ));
+$sort = array ( 'time' => -1);
+$cursor = $collection->find($where)->sort($sort)->limit(1);
+if($cursor->hasNext()) {
+  $cursor->next();
+  $currentRec=$cursor->current();
+  if (count($currentRec['msgData']) == 0) {
+    $msgData=$currentRec['msgData'];
+  } else {
+    $msgData = print_r($currentRec['msgData'],true);
+  }
+  $msgTime = isset($currentRec['time']) ? $currentRec['time'] : 'No record found';
+  $temperature = isset($currentRec['msgData']['t']) ? $currentRec['msgData']['t'] : 'null';
+  $light = isset($currentRec['msgData']['l']) ? $currentRec['msgData']['l'] : 'null';
+} else {
+  $msgData='No record found';
+  $msgTime='No record found';
+  $temperature='null';
+  $light='null';
+}
+
+//echo "Temp - $temperature, Light - $light, Message - $msgData \n";
+
+//Now lets get the temperature data from the last 10 records for the sparklines
+$where = array( 'node' => $nodeId, 'msgData.t' =>array( '$exists' => true ));
+$sort = array ( 'time' => -1);
+$cursor = $collection->find($where)->sort($sort)->limit(20);
+$numRecs=$cursor->count();
+$temperatureRecs=array();
+$i=0;
+while ($cursor->hasNext()) {
+  $cursor->next();
+  $thisRec=$cursor->current();
+  if($thisRec['msgData']['t']!=null) {
+    $temperatureRecs[$i]=$thisRec['msgData']['t'];
+    $i++;
+  }
+}
+
+//Now lets get the light data from the last 10 records for the sparklines
+$where = array( 'node' => $nodeId, 'msgData.l' =>array( '$exists' => true ));
+$sort = array ( 'time' => -1);
+$cursor = $collection->find($where)->sort($sort)->limit(20);
+$numRecs=$cursor->count();
+$lightRecs=array();
+$i=0;
+while ($cursor->hasNext()) {
+  $cursor->next();
+  $thisRec=$cursor->current();
+  if($thisRec['msgData']['l']!=null) {
+    $lightRecs[$i]=$thisRec['msgData']['l'];
+    $i++;
+  }
+}
+
+//echo "Temperature: ", implode(",",$temperatureRecs), "\n";
+//echo "Light: ", implode(",",$lightRecs), "\n";
+
 ?>
 <!DOCTYPE html>
 <html>
@@ -38,7 +102,8 @@ $noRecs =isset($_GET['recs']) ? $_GET['recs'] : 20;
 
     <!-- Main jumbotron for a primary marketing message or call to action -->
     <div class="banner">
-        <h1>The Things Network workshop, GROW@GreenPark</h1>
+	<a href="http://thingitude.org"><img src="img/thingitude200x40tx.png"/></a>
+        <h1>The Things Network workshop</h1>
         <p>This is a simple site showing data gathered from the TTN API for the node identified in the URL.</p>
         <p>If you are interested in building the Things Network in Reading or Thatcham, or if you are curious about our project please visit our websites.</p>
         <p><a href="http://ttnreading.org">TTN Reading</a>  and  <a href="http://thatcham.lpwan.uk">TTN Thatcham</a></p>
@@ -46,31 +111,25 @@ $noRecs =isset($_GET['recs']) ? $_GET['recs'] : 20;
 
     <div class="c-container">
         <!-- Example row of columns -->
-        <div class="row-fluid span4 ">
-            <div class="col-md-4 span4">
+        <div class="row-fluid span6 ">
+            <div class="col-md-4 span6">
                 <h2>Temperature</h2>
                 <div id="gTemp"></div>
                 <span class="dynamicsparkline" id='sp1'>Loading..</span>
             </div>
-            <div class="col-md-4 span4">
-                <h2>Humidity</h2>
-                <div id="gHum"></div>
-                <span class="dynamicsparkline" id='sp2'>Loading..</span>
-            </div>
-            <div class="col-md-4 span4">
+            <div class="col-md-4 span6">
                 <h2>Light</h2>
                 <div id="gLight"></div>
-                <span class="dynamicsparkline" id='sp3'>Loading..</span>
+                <span class="dynamicsparkline" id='sp2'>Loading..</span>
             </div>
         </div>
     </div>
     <div class="infobox">
-        <p>Node: <?PHP echo $nodeId; ?></p>
-        <p id="datapoints"></p>
-        <p id="range"></p>
+        <p>Node: <?php echo $nodeId; ?></p>
+        <p id="msgData">Message: <?php echo $msgData; ?></p>
+        <p id="range">Date/time: <?php echo $msgTime; ?></p>
         <?php echo"<form method='get' class='form-inline pull-right' action='".$_SERVER['PHP_SELF']."' >"; ?>
         <input type="text" class="input-small" id="node" name="node" value="<?php echo $nodeId; ?>" placeholder="Node ID">
-        <input type="text" class="input-small" id="recs" name="recs" placeholder="No. Records">
         <button type="submit" class="btn" id="node_btn" value="node">Refresh</button>
         </form>
     </div>
@@ -80,79 +139,29 @@ $noRecs =isset($_GET['recs']) ? $_GET['recs'] : 20;
 
 
     <script>
-        var xmlhttp = new XMLHttpRequest();
-        //var url = "./php-proxy.php?url=http://thethingsnetwork.org/api/v0/nodes/02011E01/?format=json&limit=500";
-        var url = "./php-proxy.php?url=http://thethingsnetwork.org/api/v0/nodes/<?PHP echo $nodeId; ?>/?format=json&limit=<?PHP echo $noRecs; ?>";
-
-        xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-            //document.getElementById("id01").innerHTML = xmlhttp.responseText;
-            var myArr = JSON.parse(xmlhttp.responseText);
-            myFunction(myArr);
-            }
-        };
-
-        xmlhttp.open("GET", url, true);
-        xmlhttp.send();
-        function myFunction(arr) {
-            var tVal;
-            var hVal;
-            var lVal;
-            var gTemp;
-            var gHum;
-            var gLight;
-            var out = "";
-            var i;
-            var j=0;
-            var tempSparky=[];
-            var humSparky=[];
-            var lightSparky=[];
-            for(i = arr.length;i>0; i--) {
-                //out += arr[i-1].time+' : '+arr[i-1].data_json.sensor+' <br>' ;
-                tempSparky[j]=arr[i-1].data_json.t;
-                humSparky[j]=arr[i-1].data_json.h;
-                lightSparky[j]=arr[i-1].data_json.l;
-                j++;
-            }
-            tVal=tempSparky[j-1];
-            hVal=humSparky[j-1];
-            lVal=lightSparky[j-1];
-            document.getElementById("datapoints").innerHTML = "Data points: "+arr.length;
-            document.getElementById("range").innerHTML = "Start: "+arr[arr.length-1].time + "<br/> End : " +arr[0].time;
-            $('#sp1').sparkline(tempSparky, {type:'bar', barColor:'#6666EE', negBarColor:'#4bacc6', barWidth:'5px', barSpacing:'2px', height:'50px'});
-            $('#sp2').sparkline(humSparky, {type:'bar', barColor:'#6666EE', negBarColor:'#4bacc6', barWidth:'5px', barSpacing:'2px', height:'50px'});
-            $('#sp3').sparkline(lightSparky, {type:'bar', barColor:'#6666EE', negBarColor:'#4bacc6', barWidth:'5px', barSpacing:'2px', height:'50px'});
-            gTemp = new JustGage({
-                id: "gTemp",
-                value: tVal,
-                min: -10,
-                max: 40,
-                gaugeWidthScale: 1,
-                counter: true,
-                hideInnerShadow: true
-            });
-            gHum = new JustGage({
-                id: "gHum",
-                value: hVal,
-                min: 0,
-                max: 100,
-                gaugeWidthScale: 1,
-                counter: true,
-                hideInnerShadow: true
-
-            });
-            gLight = new JustGage({
-                id: "gLight",
-                value: lVal,
-                min: 0,
-                max: 1024,
-                gaugeWidthScale: 1,
-                counter: true,
-                hideInnerShadow: true
-            });
-
-        }
-
+      document.addEventListener('DOMContentLoaded',function() {
+        $('#sp1').sparkline(<?php echo "[",implode(",",$temperatureRecs),"]"; ?>, {type:'bar', barColor:'#6666EE', negBarColor:'#4bacc6', barWidth:'5px', barSpacing:'2px', height:'50px'});
+        $('#sp2').sparkline(<?php echo "[",implode(",",$lightRecs),"]"; ?>, {type:'bar', barColor:'#6666EE', negBarColor:'#4bacc6', barWidth:'5px', barSpacing:'2px', height:'50px'});
+        gTemp = new JustGage({
+            id: "gTemp",
+            value: <?php echo $temperature; ?>,
+            min: -10,
+            max: 40,
+            gaugeWidthScale: 1,
+            counter: true,
+            hideInnerShadow: true
+        });
+        gLight = new JustGage({
+            id: "gLight",
+            value: <?php echo $light; ?>,
+            min: 0,
+            max: 1024,
+            gaugeWidthScale: 1,
+            counter: true,
+            hideInnerShadow: true
+        });
+      });
     </script>
 </body>
 </html>
+
